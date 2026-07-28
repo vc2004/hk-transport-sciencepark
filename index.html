@@ -60,35 +60,52 @@
     margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
   }
   .section-title:first-of-type { margin-top: 4px; }
-  .shuttle .badge.station { color: var(--accent); font-size: 15px; }
+  .shuttle .badge.station { color: var(--accent); }
   .shuttle .dest .sched-note { color: var(--muted); font-size: 11px; }
 
   .route {
     background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-    padding: 14px 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 14px;
+    padding: 12px 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px;
   }
-  .badges { display: flex; gap: 8px; align-items: stretch; }
+  /* 兩個徽章竪排，佔用最小橫向空間 */
+  .badges { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; width: 76px; }
   .badge {
-    min-width: 64px; text-align: center; font-size: 21px; font-weight: 800;
-    padding: 8px 6px; border-radius: 10px; background: var(--card2); color: var(--accent); letter-spacing: 0.5px;
-    display: flex; align-items: center; justify-content: center;
+    text-align: center; font-size: 18px; font-weight: 800;
+    padding: 6px 4px; border-radius: 9px; background: var(--card2); color: var(--accent); letter-spacing: 0.3px;
+    line-height: 1.15; word-break: break-word;
   }
   .badge.station {
-    color: var(--text); background: rgba(255,212,59,0.12);
+    color: var(--text); background: rgba(255,212,59,0.12); font-size: 13px; font-weight: 700;
   }
   .info { flex: 1; min-width: 0; }
-  .dest { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+  .dest { font-size: 15px; font-weight: 600; margin-bottom: 3px; overflow-wrap: anywhere; }
   .dest .en { color: var(--muted); font-weight: 400; font-size: 12px; }
-  .meta { font-size: 12px; color: var(--muted); }
-  .times { text-align: right; white-space: nowrap; }
-  .t-main { font-size: 26px; font-weight: 800; line-height: 1; }
-  .t-main .unit { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .times { text-align: right; flex-shrink: 0; }
+  .t-main { font-size: 24px; font-weight: 800; line-height: 1.05; white-space: nowrap; }
+  .t-main .unit { font-size: 12px; font-weight: 500; color: var(--muted); }
   .t-main.soon { color: var(--soon); }
   .t-main.now { color: var(--ok); }
-  .t-next { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  /* 文字型主提示（即將到站/即將開出/尾班）縮小並允許換行，避免溢出 */
+  .t-main.text { font-size: 15px; white-space: normal; line-height: 1.2; }
+  .t-next { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
   .empty { color: var(--muted); text-align:center; padding: 30px; font-size: 14px; line-height: 1.6; }
   footer { margin-top: 20px; color: var(--muted); font-size: 11px; text-align: center; line-height: 1.6; }
+
+  /* 窄屏（手機）微調 */
+  @media (max-width: 480px) {
+    body { padding: 12px; }
+    h1 { font-size: 18px; }
+    .clock { font-size: 26px; }
+    .route { padding: 11px 12px; gap: 10px; }
+    .badges { width: 68px; }
+    .badge { font-size: 17px; }
+    .badge.station { font-size: 12px; }
+    .dest { font-size: 14px; }
+    .dest .en { display: block; margin-top: 1px; }
+    .t-main { font-size: 22px; }
+  }
 </style>
 </head>
 <body>
@@ -280,7 +297,7 @@ function render() {
     const m0 = r.times.length ? minsFromNow(r.times[0]) : null;
     let mainCls = "t-main", mainTxt;
     if (m0 === null) mainTxt = "—";
-    else if (m0 <= 0) { mainCls += " now"; mainTxt = '即將到站'; }
+    else if (m0 <= 0) { mainCls += " now text"; mainTxt = '即將到站'; }
     else { if (m0 <= 3) mainCls += " soon"; mainTxt = m0 + '<span class="unit"> 分鐘</span>'; }
 
     const nextTimes = r.times.slice(1, 3).map(t => { const m = minsFromNow(t); return m <= 0 ? "即將" : m + "分"; });
@@ -381,12 +398,12 @@ function renderShuttles() {
     let mainCls = "t-main", mainTxt, nextTxt = "";
     if (upcoming.length === 0) {
       mainTxt = "今日已尾班";
-      mainCls = "t-main";
+      mainCls = "t-main text";
       const first = fmtHM(mins[0]);
       nextTxt = "明早首班 " + first;
     } else {
       const wait = Math.round(upcoming[0] - cur);
-      if (wait <= 0) { mainCls += " now"; mainTxt = "即將開出"; }
+      if (wait <= 0) { mainCls += " now text"; mainTxt = "即將開出"; }
       else { if (wait <= 5) mainCls += " soon"; mainTxt = wait + '<span class="unit"> 分鐘</span>'; }
       const rest = upcoming.slice(1, 3).map(fmtHM);
       nextTxt = "開出 " + fmtHM(upcoming[0]) + (rest.length ? " · 之後 " + rest.join(" · ") : "");
@@ -491,7 +508,7 @@ function renderMinibus() {
     const m0 = r.times.length ? minsFromNow(r.times[0]) : null;
     let mainCls = "t-main", mainTxt;
     if (m0 === null) mainTxt = "—";
-    else if (m0 <= 0) { mainCls += " now"; mainTxt = "即將到站"; }
+    else if (m0 <= 0) { mainCls += " now text"; mainTxt = "即將到站"; }
     else { if (m0 <= 3) mainCls += " soon"; mainTxt = m0 + '<span class="unit"> 分鐘</span>'; }
     const nextTimes = r.times.slice(1, 3).map(t => { const m = minsFromNow(t); return m <= 0 ? "即將" : m + "分"; });
     const nextTxt = nextTimes.length ? "之後：" + nextTimes.join(" · ") : "";
