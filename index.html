@@ -104,6 +104,9 @@
   <div class="section-title">🏠 天賦海灣一期 屋苑穿梭巴士</div>
   <div id="shuttleList"></div>
 
+  <div class="section-title">🚐 專線小巴 實時到站</div>
+  <div id="minibusList"></div>
+
   <div class="section-title">🚌 九巴 / 城巴 實時到站</div>
   <div class="filters-wrap">
     <div class="filter" id="stationFilter"><span class="filter-label">上車站點</span></div>
@@ -415,9 +418,96 @@ tickClock();
 setInterval(renderShuttles, 1000);
 renderShuttles();
 
+/* ============ 專線小巴 GMB（27A / 806A / 806B / 806C） ============ */
+// "route_id|route_seq" -> 線路資訊。只列「從家開出」方向；
+// 回程（往白石角/天賦海灣，即到總站進站的車）不納入。
+const GMB_ROUTES = {
+  "2007861|1": { code: "27A", dest: "沙田(排頭街)" },
+  "2007862|1": { code: "27A", dest: "沙田(排頭街)" },
+  "2007893|1": { code: "27A", dest: "沙田(排頭街)" },
+  "2007894|1": { code: "27A", dest: "沙田(排頭街)" },
+  "2001821|1": { code: "806A", dest: "運頭塘" },
+  "2001823|1": { code: "806B", dest: "運頭塘" },
+  "2001825|1": { code: "806C", dest: "運頭塘 / 科學園" },
+};
+// 天賦海灣一期最近的 GMB 物理站（往大埔/沙田方向上車點）
+const GMB_STOPS = [
+  "20015841", // 白石角(科城路)交匯處（27A 總站）
+  "20007676", // 創新路 天賦海灣1期對面（806 系列）
+  "20007683", // 創新路 天賦海灣一期
+  "20007097", // 科進路 溋玥‧天賦海灣外
+];
+const GMB_ETA = "https://data.etagmb.gov.hk/eta/stop/";
+
+let gmbData = [];
+
+async function fetchGmb() {
+  try {
+    const results = await Promise.all(
+      GMB_STOPS.map(sid => fetch(GMB_ETA + sid).then(r => r.json()).then(j => j.data).catch(() => null))
+    );
+    const merged = [];
+    for (const arr of results) {
+      if (!Array.isArray(arr)) continue;
+      for (const r of arr) {
+        const info = GMB_ROUTES[r.route_id + "|" + r.route_seq];
+        if (!info) continue; // 只顯示關心的線與方向
+        for (const e of (r.eta || [])) {
+          if (!e.timestamp) continue;
+          merged.push({ code: info.code, dest: info.dest, t: new Date(e.timestamp).getTime(), rmk: e.remarks_tc || "" });
+        }
+      }
+    }
+    gmbData = merged;
+    renderMinibus();
+  } catch (e) { /* 靜默重試 */ }
+}
+
+function renderMinibus() {
+  const now = Date.now();
+  const map = new Map();
+  for (const e of gmbData) {
+    if (e.t < now - 30000) continue;
+    if (!map.has(e.code)) map.set(e.code, { code: e.code, dest: e.dest, times: [], rmk: e.rmk });
+    map.get(e.code).times.push(e.t);
+  }
+  const arr = [...map.values()];
+  for (const r of arr) { r.times.sort((a, b) => a - b); r.times = [...new Set(r.times)]; }
+  arr.sort((a, b) => (a.times[0] || Infinity) - (b.times[0] || Infinity));
+
+  const list = $("minibusList");
+  if (arr.length === 0) {
+    list.innerHTML = '<div class="empty">此刻小巴暫無班次資料<br>（深夜或非服務時間屬正常）</div>';
+    return;
+  }
+  list.innerHTML = arr.map(r => {
+    const m0 = r.times.length ? minsFromNow(r.times[0]) : null;
+    let mainCls = "t-main", mainTxt;
+    if (m0 === null) mainTxt = "—";
+    else if (m0 <= 0) { mainCls += " now"; mainTxt = "即將到站"; }
+    else { if (m0 <= 3) mainCls += " soon"; mainTxt = m0 + '<span class="unit"> 分鐘</span>'; }
+    const nextTimes = r.times.slice(1, 3).map(t => { const m = minsFromNow(t); return m <= 0 ? "即將" : m + "分"; });
+    const nextTxt = nextTimes.length ? "之後：" + nextTimes.join(" · ") : "";
+    return `
+      <div class="route">
+        <div class="badges"><div class="badge">${r.code}</div></div>
+        <div class="info">
+          <div class="dest">往 ${r.dest}</div>
+          <div class="meta">專線小巴 · ${r.rmk || "實時預測"}</div>
+        </div>
+        <div class="times">
+          <div class="${mainCls}">${mainTxt}</div>
+          <div class="t-next">${nextTxt}</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+setInterval(() => { if (gmbData.length) renderMinibus(); }, 1000);
+
 setInterval(() => { if (etaData.length) render(); }, 1000);
 
-function refreshAll() { fetchAll(); }
+function refreshAll() { fetchAll(); fetchGmb(); }
 
 function setupAuto() {
   if (autoTimer) clearInterval(autoTimer);
