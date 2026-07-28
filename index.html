@@ -432,10 +432,10 @@ const GMB_ROUTES = {
 };
 // 天賦海灣一期最近的 GMB 物理站（往大埔/沙田方向上車點）
 const GMB_STOPS = [
-  "20015841", // 白石角(科城路)交匯處（27A 總站）
-  "20007676", // 創新路 天賦海灣1期對面（806 系列）
-  "20007683", // 創新路 天賦海灣一期
-  "20007097", // 科進路 溋玥‧天賦海灣外
+  { id: "20015841", name: "科城路交匯處" },   // 27A 總站
+  { id: "20007676", name: "一期對面" },       // 創新路 天賦海灣1期對面（806 系列）
+  { id: "20007683", name: "一期" },           // 創新路 天賦海灣一期
+  { id: "20007097", name: "溋玥外" },         // 科進路 溋玥‧天賦海灣外
 ];
 const GMB_ETA = "https://data.etagmb.gov.hk/eta/stop/";
 
@@ -444,17 +444,17 @@ let gmbData = [];
 async function fetchGmb() {
   try {
     const results = await Promise.all(
-      GMB_STOPS.map(sid => fetch(GMB_ETA + sid).then(r => r.json()).then(j => j.data).catch(() => null))
+      GMB_STOPS.map(s => fetch(GMB_ETA + s.id).then(r => r.json()).then(j => ({ station: s.name, data: j.data })).catch(() => null))
     );
     const merged = [];
-    for (const arr of results) {
-      if (!Array.isArray(arr)) continue;
-      for (const r of arr) {
+    for (const res of results) {
+      if (!res || !Array.isArray(res.data)) continue;
+      for (const r of res.data) {
         const info = GMB_ROUTES[r.route_id + "|" + r.route_seq];
         if (!info) continue; // 只顯示關心的線與方向
         for (const e of (r.eta || [])) {
           if (!e.timestamp) continue;
-          merged.push({ code: info.code, dest: info.dest, t: new Date(e.timestamp).getTime(), rmk: e.remarks_tc || "" });
+          merged.push({ code: info.code, dest: info.dest, station: res.station, t: new Date(e.timestamp).getTime(), rmk: e.remarks_tc || "" });
         }
       }
     }
@@ -468,11 +468,18 @@ function renderMinibus() {
   const map = new Map();
   for (const e of gmbData) {
     if (e.t < now - 30000) continue;
-    if (!map.has(e.code)) map.set(e.code, { code: e.code, dest: e.dest, times: [], rmk: e.rmk });
-    map.get(e.code).times.push(e.t);
+    if (!map.has(e.code)) map.set(e.code, { code: e.code, dest: e.dest, rmk: e.rmk, entries: [] });
+    map.get(e.code).entries.push({ t: e.t, station: e.station });
   }
   const arr = [...map.values()];
-  for (const r of arr) { r.times.sort((a, b) => a - b); r.times = [...new Set(r.times)]; }
+  for (const r of arr) {
+    // 同一時間可能來自多個站，去重（保留最早出現的站名）
+    r.entries.sort((a, b) => a.t - b.t);
+    const seen = new Set();
+    r.entries = r.entries.filter(x => seen.has(x.t) ? false : seen.add(x.t));
+    r.times = r.entries.map(x => x.t);
+    r.station = r.entries[0] ? r.entries[0].station : "";
+  }
   arr.sort((a, b) => (a.times[0] || Infinity) - (b.times[0] || Infinity));
 
   const list = $("minibusList");
@@ -490,7 +497,10 @@ function renderMinibus() {
     const nextTxt = nextTimes.length ? "之後：" + nextTimes.join(" · ") : "";
     return `
       <div class="route">
-        <div class="badges"><div class="badge">${r.code}</div></div>
+        <div class="badges">
+          <div class="badge">${r.code}</div>
+          <div class="badge station">${r.station}</div>
+        </div>
         <div class="info">
           <div class="dest">往 ${r.dest}</div>
           <div class="meta">專線小巴 · ${r.rmk || "實時預測"}</div>
