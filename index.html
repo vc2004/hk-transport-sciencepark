@@ -34,6 +34,17 @@
   }
   .sub { color: var(--muted); font-size: 12px; margin: 4px 0 14px; }
 
+  .weather {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 10px 14px; margin: 0 0 14px;
+  }
+  .wx-icon { width: 46px; height: 46px; flex-shrink: 0; }
+  .wx-main { flex: 1; min-width: 0; }
+  .wx-temp { font-size: 24px; font-weight: 800; color: var(--text); line-height: 1.1; }
+  .wx-hum { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 8px; }
+  .wx-desc { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+
   .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
   button {
     background: var(--card2); color: var(--text); border: 1px solid var(--line);
@@ -111,6 +122,14 @@
 <body>
   <header><h1>🚌 巴士到站看板</h1><div class="clock" id="clock">--:--:--</div></header>
   <div class="sub">白石角 · 天賦海灣一帶 · 屋苑穿梭 + 小巴 + 九巴/城巴 實時到站</div>
+
+  <div class="weather" id="weather">
+    <img class="wx-icon" id="wxIcon" alt="" />
+    <div class="wx-main">
+      <div class="wx-temp"><span id="wxTemp">--</span>°<span class="wx-hum" id="wxHum"></span></div>
+      <div class="wx-desc" id="wxDesc">天氣載入中…</div>
+    </div>
+  </div>
 
   <div class="toolbar">
     <button class="primary" id="refreshBtn">↻ 立即刷新</button>
@@ -431,6 +450,38 @@ function renderShuttles() {
 function tickClock() { $("clock").textContent = fmtClock(new Date()); }
 setInterval(tickClock, 1000);
 tickClock();
+
+/* ============ 天氣（香港天文台 HKO 開放數據，取大埔）============ */
+const HKO_NOW = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=tc";
+const HKO_FLW = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=flw&lang=tc";
+const WX_REFRESH_MS = 10 * 60 * 1000; // 天氣 10 分鐘更新一次足夠
+
+async function fetchWeather() {
+  try {
+    const [now, flw] = await Promise.all([
+      fetch(HKO_NOW).then(r => r.json()),
+      fetch(HKO_FLW).then(r => r.json()).catch(() => ({})),
+    ]);
+    // 温度：优先大埔，退回沙田
+    const temps = (now.temperature && now.temperature.data) || [];
+    let t = temps.find(x => x.place === "大埔") || temps.find(x => x.place === "沙田") || temps[0];
+    $("wxTemp").textContent = t ? t.value : "--";
+    // 湿度
+    const hum = (now.humidity && now.humidity.data && now.humidity.data[0]);
+    $("wxHum").textContent = hum ? "濕度 " + hum.value + "%" : "";
+    // 天气图标（HKO 官方图标 PNG）
+    const icon = (now.icon && now.icon[0]) || null;
+    if (icon) { $("wxIcon").src = "https://www.hko.gov.hk/images/HKOWxIconOutline/pic" + icon + ".png"; $("wxIcon").style.display = ""; }
+    else $("wxIcon").style.display = "none";
+    // 今日预测简述
+    const desc = flw.forecastDesc || flw.generalSituation || "";
+    $("wxDesc").textContent = desc ? desc.replace(/\s+/g, "") : "暫無預測";
+  } catch (e) {
+    $("wxDesc").textContent = "天氣資料暫時無法載入";
+  }
+}
+fetchWeather();
+setInterval(fetchWeather, WX_REFRESH_MS);
 
 setInterval(renderShuttles, 1000);
 renderShuttles();
