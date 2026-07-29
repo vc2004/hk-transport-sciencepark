@@ -121,7 +121,7 @@
 </head>
 <body>
   <header><h1>🚌 巴士到站看板</h1><div class="clock" id="clock">--:--:--</div></header>
-  <div class="sub">白石角 · 天賦海灣一帶 · 屋苑穿梭 + 九巴/城巴 + 小巴 實時到站</div>
+  <div class="sub">白石角 · 天賦海灣一帶 · 屋苑穿梭 + 九巴/城巴 + 小巴 + 港鐵 實時到站</div>
 
   <div class="weather" id="weather">
     <img class="wx-icon" id="wxIcon" alt="" />
@@ -150,6 +150,9 @@
 
   <div class="section-title">🚐 專線小巴 實時到站</div>
   <div id="minibusList"></div>
+
+  <div class="section-title">🚆 港鐵東鐵線 · 大學站</div>
+  <div id="mtrList"></div>
 
   <footer>
     數據來源：九巴 KMB 開放數據平台（data.etabus.gov.hk）· 僅供參考，以實際班次為準<br>
@@ -583,9 +586,76 @@ function renderMinibus() {
 
 setInterval(() => { if (gmbData.length) renderMinibus(); }, 1000);
 
+/* ============ 港鐵東鐵線 大學站（MTR 實時列車）============ */
+const MTR_API = "https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=EAL&sta=UNI&lang=tc";
+// 站點代碼 -> 中文
+const MTR_DEST = {
+  ADM: "金鐘", EXC: "會展", HUH: "紅磡", MKK: "旺角東", KOT: "九龍塘",
+  TAP: "大埔墟", TWO: "太和", FAN: "粉嶺", SHS: "上水", LOW: "羅湖", LMC: "落馬洲",
+  RAC: "馬場", FOT: "火炭", SHT: "沙田", UNI: "大學", TAW: "大圍",
+};
+let mtrData = null;
+
+async function fetchMtr() {
+  try {
+    const j = await fetch(MTR_API).then(r => r.json());
+    const d = (j.data && j.data["EAL-UNI"]) || {};
+    mtrData = {
+      // UP = 北行（往上水/羅湖/落馬洲方向），DOWN = 南行（往市區/金鐘）
+      up: (d.UP || []).map(t => ({ dest: t.dest, t: new Date(t.time.replace(" ", "T") + "+08:00").getTime(), plat: t.plat })),
+      down: (d.DOWN || []).map(t => ({ dest: t.dest, t: new Date(t.time.replace(" ", "T") + "+08:00").getTime(), plat: t.plat })),
+    };
+    renderMtr();
+  } catch (e) { /* 靜默重試 */ }
+}
+
+function renderMtr() {
+  if (!mtrData) return;
+  const dirs = [
+    { key: "down", label: "南行", sub: "往市區 / 金鐘", trains: mtrData.down },
+    { key: "up", label: "北行", sub: "往上水 / 羅湖 / 落馬洲", trains: mtrData.up },
+  ];
+  const html = dirs.map(dir => {
+    const trains = dir.trains.filter(t => t.t >= Date.now() - 30000).sort((a, b) => a.t - b.t);
+    let mainCls = "t-main", mainTxt = "—", nextTxt = "";
+    let destName = "";
+    if (trains.length) {
+      const m0 = minsFromNow(trains[0].t);
+      destName = MTR_DEST[trains[0].dest] || trains[0].dest;
+      if (m0 <= 0) { mainCls += " now text"; mainTxt = "即將到站"; }
+      else { if (m0 <= 3) mainCls += " soon"; mainTxt = m0 + '<span class="unit"> 分鐘</span>'; }
+      const rest = trains.slice(1, 3).map(t => {
+        const m = minsFromNow(t.t);
+        return (MTR_DEST[t.dest] || t.dest) + (m <= 0 ? "即將" : " " + m + "分");
+      });
+      nextTxt = rest.length ? "之後：" + rest.join(" · ") : "";
+    } else {
+      mainCls += " text"; mainTxt = "暫無班次";
+    }
+    return `
+      <div class="route">
+        <div class="badges">
+          <div class="badge">東鐵</div>
+          <div class="badge station">${dir.label}</div>
+        </div>
+        <div class="info">
+          <div class="dest">${destName ? "往 " + destName : dir.sub}</div>
+          <div class="meta">${dir.sub}</div>
+        </div>
+        <div class="times">
+          <div class="${mainCls}">${mainTxt}</div>
+          <div class="t-next">${nextTxt}</div>
+        </div>
+      </div>`;
+  }).join("");
+  $("mtrList").innerHTML = html;
+}
+
+setInterval(() => { if (mtrData) renderMtr(); }, 1000);
+
 setInterval(() => { if (etaData.length) render(); }, 1000);
 
-function refreshAll() { fetchAll(); fetchGmb(); }
+function refreshAll() { fetchAll(); fetchGmb(); fetchMtr(); }
 
 function setupAuto() {
   if (autoTimer) clearInterval(autoTimer);
