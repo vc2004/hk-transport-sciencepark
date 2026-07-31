@@ -34,6 +34,32 @@
   }
   .sub { color: var(--muted); font-size: 12px; margin: 4px 0 14px; }
 
+  .warnings { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .warnings:empty { display: none; }
+  .warn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 12px 7px 8px; border-radius: 10px; font-size: 13px; font-weight: 700;
+    color: #fff; border: 1px solid rgba(255,255,255,0.15);
+  }
+  /* 警告方形圖標（自繪，不依賴外部圖片）*/
+  .warn .sym {
+    width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 900; color: #fff; letter-spacing: -0.5px;
+  }
+  .warn.rain-amber { background: #8a6d00; }
+  .warn.rain-amber .sym { background: #f5b301; color: #3a2e00; }
+  .warn.rain-red   { background: #a11; }
+  .warn.rain-red   .sym { background: #e02020; }
+  .warn.rain-black { background: #000; border-color: #444; }
+  .warn.rain-black .sym { background: #111; border: 1px solid #666; }
+  .warn.ts { background: #5a3d8a; }          /* 雷暴 */
+  .warn.ts .sym { background: #7c4dff; }
+  .warn.tc { background: #9a5b00; }          /* 熱帶氣旋 */
+  .warn.tc .sym { background: #ff8c00; color: #3a2000; }
+  .warn.other { background: #444d58; }
+  .warn.other .sym { background: #5a6572; }
+
   .weather {
     display: flex; align-items: center; gap: 12px;
     background: var(--card); border: 1px solid var(--line); border-radius: 14px;
@@ -122,6 +148,8 @@
 <body>
   <header><h1>🚌 巴士到站看板</h1><div class="clock" id="clock">--:--:--</div></header>
   <div class="sub">白石角 · 天賦海灣一帶 · 屋苑穿梭 + 九巴/城巴 + 小巴 + 港鐵 實時到站</div>
+
+  <div class="warnings" id="warnings"></div>
 
   <div class="weather" id="weather">
     <img class="wx-icon" id="wxIcon" alt="" />
@@ -457,7 +485,51 @@ tickClock();
 /* ============ 天氣（香港天文台 HKO 開放數據，取大埔）============ */
 const HKO_NOW = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=tc";
 const HKO_FLW = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=flw&lang=tc";
+const HKO_WARN = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=tc";
 const WX_REFRESH_MS = 10 * 60 * 1000; // 天氣 10 分鐘更新一次足夠
+
+/* 天氣警告：自繪徽章。key 為 warnsum 內的分類代碼。 */
+function warnBadge(item) {
+  const name = item.name || "";
+  const code = item.code || "";
+  const type = item.type || "";
+  // 暴雨警告
+  if (name.indexOf("暴雨") >= 0) {
+    if (code === "WRAINB" || type.indexOf("黑") >= 0) return { cls: "rain-black", sym: "雨", label: "黑色暴雨" };
+    if (code === "WRAINR" || type.indexOf("紅") >= 0) return { cls: "rain-red",   sym: "雨", label: "紅色暴雨" };
+    return { cls: "rain-amber", sym: "雨", label: "黃色暴雨" };
+  }
+  // 熱帶氣旋（台風）信號：T1/T3/T8/T9/T10
+  if (name.indexOf("熱帶氣旋") >= 0 || name.indexOf("颱風") >= 0) {
+    const m = type && type.match(/(\d+)/);
+    const n = m ? m[1] : (code.match(/(\d+)/) || [])[1] || "";
+    const dir = (type.match(/(東北|東南|西北|西南)/) || [])[1] || "";
+    return { cls: "tc", sym: "T" + n, label: n + "號" + (dir ? dir : "") + "風球" };
+  }
+  if (name.indexOf("雷暴") >= 0) return { cls: "ts", sym: "⚡", label: "雷暴警告" };
+  if (name.indexOf("山泥") >= 0) return { cls: "other", sym: "⛰", label: "山泥傾瀉" };
+  if (name.indexOf("酷熱") >= 0) return { cls: "other", sym: "🌡", label: "酷熱天氣" };
+  if (name.indexOf("寒冷") >= 0) return { cls: "other", sym: "❄", label: "寒冷天氣" };
+  if (name.indexOf("霜凍") >= 0) return { cls: "other", sym: "❄", label: "霜凍警告" };
+  if (name.indexOf("火災") >= 0) return { cls: "other", sym: "🔥", label: "火災危險" };
+  return { cls: "other", sym: "!", label: name || "天氣警告" };
+}
+
+async function fetchWarnings() {
+  try {
+    const w = await fetch(HKO_WARN).then(r => r.json());
+    const items = [];
+    for (const key in w) {
+      const it = w[key];
+      // 只顯示生效中的警告；已取消(CANCEL)的不顯示
+      if (!it || it.actionCode === "CANCEL") continue;
+      items.push(warnBadge(it));
+    }
+    $("warnings").innerHTML = items.map(b =>
+      `<span class="warn ${b.cls}"><span class="sym">${b.sym}</span>${b.label}</span>`
+    ).join("");
+  } catch (e) { /* 靜默 */ }
+}
 
 async function fetchWeather() {
   try {
@@ -483,8 +555,9 @@ async function fetchWeather() {
     $("wxDesc").textContent = "天氣資料暫時無法載入";
   }
 }
-fetchWeather();
-setInterval(fetchWeather, WX_REFRESH_MS);
+function refreshWeather() { fetchWeather(); fetchWarnings(); }
+refreshWeather();
+setInterval(refreshWeather, WX_REFRESH_MS);
 
 setInterval(renderShuttles, 1000);
 renderShuttles();
